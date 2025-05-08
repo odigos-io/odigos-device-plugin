@@ -37,57 +37,107 @@ func NewManager(lister ListerInterface) *Manager {
 }
 
 // Run starts the Manager. It sets up the infrastructure and handles system signals, Kubelet socket
-// watch and monitoring of available resources as well as starting and stoping of plugins.
+// watch and monitoring of available resources as well as starting and stopping of plugins.
 func (dpm *Manager) Run() {
-	glog.V(3).Info("Starting device plugin manager")
+	glog.V(0).Info("Starting device plugin manager")
 
-	// First important signal channel is the os signal channel. We only care about (somewhat) small
-	// subset of available signals.
-	glog.V(3).Info("Registering for system signal notifications")
+	// Listen for termination signals
+	glog.V(0).Info("Registering for system signal notifications")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 
-	// The other important channel is filesystem notification channel, responsible for watching
-	// device plugin directory.
-	glog.V(3).Info("Registering for notifications of filesystem changes in device plugin directory")
-	fsWatcher, _ := fsnotify.NewWatcher()
-	defer fsWatcher.Close()
-	fsWatcher.Add(pluginapi.DevicePluginPath)
+	// Attempt to initialize filesystem watcher
+	glog.V(0).Info("Registering for notifications of filesystem changes in device plugin directory")
+	var (
+		fsWatcher      *fsnotify.Watcher
+		err            error
+		usePolling     bool
+		pollingStartCh chan struct{}
+		stopPolling    chan struct{}
+	)
 
-	// Create list of running plugins and start Discover method of given lister. This method is
-	// responsible of notifying manager about changes in available plugins.
+	fsWatcher, err = fsnotify.NewWatcher()
+	if err != nil {
+		glog.Warningf("Failed to create fsnotify watcher: %v, falling back to polling", err)
+		usePolling = true
+		pollingStartCh = make(chan struct{}, 1) // Buffered channel for socket creation/modification
+		stopPolling = make(chan struct{})
+		go startPolling(pluginapi.KubeletSocket, pollingStartCh, stopPolling)
+	} else {
+		err = fsWatcher.Add(pluginapi.DevicePluginPath)
+		if err != nil {
+			glog.Warningf("Failed to watch device plugin path: %v, falling back to polling", err)
+			usePolling = true
+			pollingStartCh = make(chan struct{}, 1) // Buffered channel for socket creation/modification
+			stopPolling = make(chan struct{})
+			fsWatcher.Close()
+			fsWatcher = nil
+			go startPolling(pluginapi.KubeletSocket, pollingStartCh, stopPolling)
+		} else {
+			defer fsWatcher.Close()
+		}
+	}
+
+	// Start plugin discovery
 	var pluginMap = make(map[string]devicePlugin)
-	glog.V(3).Info("Starting Discovery on new plugins")
+	glog.V(0).Info("Starting Discovery on new plugins")
 	pluginsCh := make(chan PluginNameList)
 	defer close(pluginsCh)
 	go dpm.lister.Discover(pluginsCh)
 
-	// Finally start a loop that will handle messages from opened channels.
-	glog.V(3).Info("Handling incoming signals")
+	// Main event loop
+	glog.V(0).Info("Handling incoming signals")
 HandleSignals:
 	for {
-		select {
-		case newPluginsList := <-pluginsCh:
-			glog.V(3).Infof("Received new list of plugins: %s", newPluginsList)
-			dpm.handleNewPlugins(pluginMap, newPluginsList)
-		case event := <-fsWatcher.Events:
-			if event.Name == pluginapi.KubeletSocket {
-				glog.V(3).Infof("Received kubelet socket event: %s", event)
-				if event.Op&fsnotify.Create == fsnotify.Create {
-					dpm.startPluginServers(pluginMap)
+		if !usePolling {
+			// fsnotify mode: include fsWatcher.Events
+			select {
+			case newPluginsList := <-pluginsCh:
+				glog.V(0).Infof("Received new list of plugins: %s", newPluginsList)
+				dpm.handleNewPlugins(pluginMap, newPluginsList)
+
+			case event := <-fsWatcher.Events:
+				if event.Name == pluginapi.KubeletSocket {
+					glog.V(0).Infof("Received kubelet socket event: %s", event)
+					if event.Op&fsnotify.Create == fsnotify.Create {
+						dpm.startPluginServers(pluginMap)
+					}
+					if event.Op&fsnotify.Remove == fsnotify.Remove {
+						dpm.stopPluginServers(pluginMap)
+					}
 				}
-				// TODO: Kubelet doesn't really clean-up it's socket, so this is currently
-				// manual-testing thing. Could we solve Kubelet deaths better?
-				if event.Op&fsnotify.Remove == fsnotify.Remove {
-					dpm.stopPluginServers(pluginMap)
+
+			case s := <-signalCh:
+				switch s {
+				case syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT:
+					glog.V(1).Infof("Received signal \"%v\", shutting down", s)
+					if usePolling {
+						close(stopPolling)
+					}
+					dpm.stopPlugins(pluginMap)
+					break HandleSignals
 				}
 			}
-		case s := <-signalCh:
-			switch s {
-			case syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT:
-				glog.V(3).Infof("Received signal \"%v\", shutting down", s)
-				dpm.stopPlugins(pluginMap)
-				break HandleSignals
+		} else {
+			select {
+			case newPluginsList := <-pluginsCh:
+				glog.V(1).Infof("Received new list of plugins: %s", newPluginsList)
+				dpm.handleNewPlugins(pluginMap, newPluginsList)
+
+			case <-pollingStartCh:
+				glog.V(1).Infof("Kubelet socket modified or created (polling)")
+				dpm.startPluginServers(pluginMap)
+
+			case s := <-signalCh:
+				switch s {
+				case syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT:
+					glog.V(1).Infof("Received signal \"%v\", shutting down", s)
+					if usePolling {
+						close(stopPolling)
+					}
+					dpm.stopPlugins(pluginMap)
+					break HandleSignals
+				}
 			}
 		}
 	}
@@ -107,7 +157,7 @@ func (dpm *Manager) handleNewPlugins(currentPluginsMap map[string]devicePlugin, 
 		go func(name string) {
 			if _, ok := currentPluginsMap[name]; !ok {
 				// add new plugin only if it doesn't already exist
-				glog.V(3).Infof("Adding a new plugin \"%s\"", name)
+				glog.V(1).Infof("Adding a new plugin \"%s\"", name)
 				plugin := newDevicePlugin(dpm.lister.GetResourceNamespace(), name, dpm.lister.NewPlugin(name))
 				startPlugin(name, plugin)
 				pluginMapMutex.Lock()
@@ -124,7 +174,7 @@ func (dpm *Manager) handleNewPlugins(currentPluginsMap map[string]devicePlugin, 
 		wg.Add(1)
 		go func(name string, plugin devicePlugin) {
 			if _, found := newPluginsSet[name]; !found {
-				glog.V(3).Infof("Remove unused plugin \"%s\"", name)
+				glog.V(1).Infof("Remove unused plugin \"%s\"", name)
 				stopPlugin(name, plugin)
 				pluginMapMutex.Lock()
 				delete(currentPluginsMap, name)
@@ -208,10 +258,10 @@ func startPluginServer(pluginLastName string, plugin devicePlugin) {
 		if err == nil {
 			return
 		} else if i == startPluginServerRetries {
-			glog.V(3).Infof("Failed to start plugin's \"%s\" server, within given %d tries: %s",
+			glog.V(1).Infof("Failed to start plugin's \"%s\" server, within given %d tries: %s",
 				pluginLastName, startPluginServerRetries, err)
 		} else {
-			glog.Errorf("Failed to start plugin's \"%s\" server, atempt %d ouf of %d waiting %d before next try: %s",
+			glog.Errorf("Failed to start plugin's \"%s\" server, attempt %d out of %d waiting %d before next try: %s",
 				pluginLastName, i, startPluginServerRetries, startPluginServerRetryWait, err)
 			time.Sleep(startPluginServerRetryWait)
 		}
@@ -222,5 +272,42 @@ func stopPluginServer(pluginLastName string, plugin devicePlugin) {
 	err := plugin.StopServer()
 	if err != nil {
 		glog.Errorf("Failed to stop plugin's \"%s\" server: %s", pluginLastName, err)
+	}
+}
+
+func startPolling(socketPath string, notifyStart chan struct{}, stop chan struct{}) {
+	glog.V(0).Infof("Starting polling for socket: %s", socketPath)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	var lastModTime time.Time
+	socketExists := false
+
+	for {
+		select {
+		case <-ticker.C:
+			info, err := os.Stat(socketPath)
+			if err == nil {
+				// Socket exists
+				modTime := info.ModTime()
+				if !socketExists || modTime.After(lastModTime) {
+					lastModTime = modTime
+					socketExists = true
+					glog.V(1).Infof("Detected modification or creation of: %s", socketPath)
+					select {
+					case notifyStart <- struct{}{}:
+						glog.V(1).Infof("Sent notifyStart signal")
+					default:
+					}
+				}
+			} else {
+				// Socket does not exist or other error occurred
+				glog.V(1).Infof("os.Stat(%s) error: %v", socketPath, err)
+			}
+
+		case <-stop:
+			glog.V(0).Info("Stopping polling loop")
+			return
+		}
 	}
 }
