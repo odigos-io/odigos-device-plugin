@@ -39,15 +39,15 @@ func NewManager(lister ListerInterface) *Manager {
 // Run starts the Manager. It sets up the infrastructure and handles system signals, Kubelet socket
 // watch and monitoring of available resources as well as starting and stopping of plugins.
 func (dpm *Manager) Run() {
-	glog.V(0).Info("Starting device plugin manager")
+	glog.V(3).Info("Starting device plugin manager")
 
 	// Listen for termination signals
-	glog.V(0).Info("Registering for system signal notifications")
+	glog.V(3).Info("Registering for system signal notifications")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 
 	// Attempt to initialize filesystem watcher
-	glog.V(0).Info("Registering for notifications of filesystem changes in device plugin directory")
+	glog.V(3).Info("Registering for notifications of filesystem changes in device plugin directory")
 	var (
 		fsWatcher      *fsnotify.Watcher
 		err            error
@@ -80,25 +80,25 @@ func (dpm *Manager) Run() {
 
 	// Start plugin discovery
 	var pluginMap = make(map[string]devicePlugin)
-	glog.V(0).Info("Starting Discovery on new plugins")
+	glog.V(3).Info("Starting Discovery on new plugins")
 	pluginsCh := make(chan PluginNameList)
 	defer close(pluginsCh)
 	go dpm.lister.Discover(pluginsCh)
 
 	// Main event loop
-	glog.V(0).Info("Handling incoming signals")
+	glog.V(3).Info("Handling incoming signals")
 HandleSignals:
 	for {
 		if !usePolling {
 			// fsnotify mode: include fsWatcher.Events
 			select {
 			case newPluginsList := <-pluginsCh:
-				glog.V(0).Infof("Received new list of plugins: %s", newPluginsList)
+				glog.V(3).Infof("Received new list of plugins: %s", newPluginsList)
 				dpm.handleNewPlugins(pluginMap, newPluginsList)
 
 			case event := <-fsWatcher.Events:
 				if event.Name == pluginapi.KubeletSocket {
-					glog.V(0).Infof("Received kubelet socket event: %s", event)
+					glog.V(3).Infof("Received kubelet socket event: %s", event)
 					if event.Op&fsnotify.Create == fsnotify.Create {
 						dpm.startPluginServers(pluginMap)
 					}
@@ -110,7 +110,7 @@ HandleSignals:
 			case s := <-signalCh:
 				switch s {
 				case syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT:
-					glog.V(1).Infof("Received signal \"%v\", shutting down", s)
+					glog.V(3).Infof("Received signal \"%v\", shutting down", s)
 					if usePolling {
 						close(stopPolling)
 					}
@@ -276,7 +276,7 @@ func stopPluginServer(pluginLastName string, plugin devicePlugin) {
 }
 
 func startPolling(socketPath string, notifyStart chan struct{}, stop chan struct{}) {
-	glog.V(0).Infof("Starting polling for socket: %s", socketPath)
+	glog.V(3).Infof("Starting polling for socket: %s", socketPath)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -306,7 +306,7 @@ func startPolling(socketPath string, notifyStart chan struct{}, stop chan struct
 			}
 
 		case <-stop:
-			glog.V(0).Info("Stopping polling loop")
+			glog.V(3).Info("Stopping polling loop")
 			return
 		}
 	}
