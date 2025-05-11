@@ -50,13 +50,12 @@ func (dpm *Manager) Run() {
 	// Attempt to initialize filesystem watcher
 	glog.V(3).Info("Registering for notifications of filesystem changes in device plugin directory")
 	var (
-		fsWatcher        *fsnotify.Watcher
-		err              error
-		usePolling       bool
-		socketChangeNotifyCh   chan struct{}
-		pollingStopCh      chan struct{}
-		fsWatcherEvents  <-chan fsnotify.Event
-		pollingEvents <-chan struct{}
+		fsWatcher       *fsnotify.Watcher
+		err             error
+		fsWatcherEvents <-chan fsnotify.Event
+		ticker          *time.Ticker
+		lastModTime     time.Time
+		socketExists    bool
 	)
 
 	fsWatcher, err = func() (*fsnotify.Watcher, error) {
@@ -80,11 +79,8 @@ func (dpm *Manager) Run() {
 	}()
 
 	if err != nil {
-		usePolling = true
-		socketChangeNotifyCh = make(chan struct{}, 1) // Buffered channel for socket creation/modification
-		pollingStopCh = make(chan struct{})
-		go startPolling(pluginapi.KubeletSocket, socketChangeNotifyCh, pollingStopCh)
-		pollingEvents = socketChangeNotifyCh
+		ticker = time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
 	} else {
 		fsWatcherEvents = fsWatcher.Events
 	}
@@ -116,17 +112,25 @@ HandleSignals:
 				}
 			}
 
-		case <-pollingEvents:
-			glog.V(3).Infof("Kubelet socket modified or created (polling)")
-			dpm.startPluginServers(pluginMap)
+		case <-ticker.C:
+			info, err := os.Stat(pluginapi.KubeletSocket)
+			if err == nil {
+				modTime := info.ModTime()
+				if !socketExists || modTime.After(lastModTime) {
+					lastModTime = modTime
+					socketExists = true
+					glog.V(3).Infof("Detected modification or creation of: %s", pluginapi.KubeletSocket)
+					dpm.startPluginServers(pluginMap)
+				}
+			} else {
+				socketExists = false
+				glog.V(3).Infof("os.Stat(%s) error: %v", pluginapi.KubeletSocket, err)
+			}
 
 		case s := <-signalCh:
 			switch s {
 			case syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT:
 				glog.V(3).Infof("Received signal \"%v\", shutting down", s)
-				if usePolling {
-					close(pollingStopCh)
-				}
 				dpm.stopPlugins(pluginMap)
 				break HandleSignals
 			}
@@ -263,42 +267,5 @@ func stopPluginServer(pluginLastName string, plugin devicePlugin) {
 	err := plugin.StopServer()
 	if err != nil {
 		glog.Errorf("Failed to stop plugin's \"%s\" server: %s", pluginLastName, err)
-	}
-}
-
-func startPolling(socketPath string, notifyStart chan struct{}, stop chan struct{}) {
-	glog.V(3).Infof("Starting polling for socket: %s", socketPath)
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	var lastModTime time.Time
-	socketExists := false
-
-	for {
-		select {
-		case <-ticker.C:
-			info, err := os.Stat(socketPath)
-			if err == nil {
-				// Socket exists
-				modTime := info.ModTime()
-				if !socketExists || modTime.After(lastModTime) {
-					lastModTime = modTime
-					socketExists = true
-					glog.V(3).Infof("Detected modification or creation of: %s", socketPath)
-					select {
-					case notifyStart <- struct{}{}:
-						glog.V(3).Infof("Sent notifyStart signal")
-					default:
-					}
-				}
-			} else {
-				// Socket does not exist or other error occurred
-				glog.V(3).Infof("os.Stat(%s) error: %v", socketPath, err)
-			}
-
-		case <-stop:
-			glog.V(3).Info("Stopping polling loop")
-			return
-		}
 	}
 }
