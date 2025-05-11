@@ -53,10 +53,10 @@ func (dpm *Manager) Run() {
 		fsWatcher        *fsnotify.Watcher
 		err              error
 		usePolling       bool
-		pollingStartCh   chan struct{}
-		stopPolling      chan struct{}
+		socketChangeNotifyCh   chan struct{}
+		pollingStopCh      chan struct{}
 		fsWatcherEvents  <-chan fsnotify.Event
-		pollingTriggerCh <-chan struct{}
+		pollingEvents <-chan struct{}
 	)
 
 	fsWatcher, err = func() (*fsnotify.Watcher, error) {
@@ -81,10 +81,10 @@ func (dpm *Manager) Run() {
 
 	if err != nil {
 		usePolling = true
-		pollingStartCh = make(chan struct{}, 1) // Buffered channel for socket creation/modification
-		stopPolling = make(chan struct{})
-		go startPolling(pluginapi.KubeletSocket, pollingStartCh, stopPolling)
-		pollingTriggerCh = pollingStartCh
+		socketChangeNotifyCh = make(chan struct{}, 1) // Buffered channel for socket creation/modification
+		pollingStopCh = make(chan struct{})
+		go startPolling(pluginapi.KubeletSocket, socketChangeNotifyCh, pollingStopCh)
+		pollingEvents = socketChangeNotifyCh
 	} else {
 		fsWatcherEvents = fsWatcher.Events
 	}
@@ -116,7 +116,7 @@ HandleSignals:
 				}
 			}
 
-		case <-pollingTriggerCh:
+		case <-pollingEvents:
 			glog.V(3).Infof("Kubelet socket modified or created (polling)")
 			dpm.startPluginServers(pluginMap)
 
@@ -125,7 +125,7 @@ HandleSignals:
 			case syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT:
 				glog.V(3).Infof("Received signal \"%v\", shutting down", s)
 				if usePolling {
-					close(stopPolling)
+					close(pollingStopCh)
 				}
 				dpm.stopPlugins(pluginMap)
 				break HandleSignals
