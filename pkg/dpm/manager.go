@@ -37,7 +37,7 @@ func NewManager(lister ListerInterface) *Manager {
 }
 
 // Run starts the Manager. It sets up the infrastructure and handles system signals, Kubelet socket
-// watch and monitoring of available resources as well as starting and stopping of plugins.
+// watch and monitoring of available resources as well as starting and stoping of plugins.
 func (dpm *Manager) Run() {
 	glog.V(3).Info("Starting device plugin manager")
 
@@ -47,7 +47,8 @@ func (dpm *Manager) Run() {
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 
-	// Attempt to initialize filesystem watcher
+	// The other important channel is filesystem notification channel, responsible for watching
+	// device plugin directory.
 	glog.V(3).Info("Registering for notifications of filesystem changes in device plugin directory")
 	var (
 		fsWatcher       *fsnotify.Watcher
@@ -85,14 +86,15 @@ func (dpm *Manager) Run() {
 		fsWatcherEvents = fsWatcher.Events
 	}
 
-	// Start plugin discovery
+	// Create list of running plugins and start Discover method of given lister. This method is
+	// responsible of notifying manager about changes in available plugins.
 	var pluginMap = make(map[string]devicePlugin)
 	glog.V(3).Info("Starting Discovery on new plugins")
 	pluginsCh := make(chan PluginNameList)
 	defer close(pluginsCh)
 	go dpm.lister.Discover(pluginsCh)
 
-	// Main event loop
+	// Finally start a loop that will handle messages from opened channels.
 	glog.V(3).Info("Handling incoming signals")
 HandleSignals:
 	for {
@@ -107,6 +109,8 @@ HandleSignals:
 				if event.Op&fsnotify.Create == fsnotify.Create {
 					dpm.startPluginServers(pluginMap)
 				}
+				// TODO: Kubelet doesn't really clean-up it's socket, so this is currently
+				// manual-testing thing. Could we solve Kubelet deaths better?
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
 					dpm.stopPluginServers(pluginMap)
 				}
