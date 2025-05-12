@@ -9,7 +9,6 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-logr/logr"
-	"github.com/golang/glog"
 
 	//"github.com/golang/glog"
 
@@ -33,7 +32,7 @@ type Manager struct {
 // NewManager is the canonical way of initializing Manager. User must provide ListerInterface
 // implementation. Lister will provide information about handled resources, monitor their
 // availability and provide method to spawn plugins that will handle found resources.
-func NewManager(lister ListerInterface, logger logr.Logger) *Manager {
+func NewManager(lister ListerInterface, log logr.Logger) *Manager {
 	dpm := &Manager{
 		lister: lister,
 		log:    logger,
@@ -44,7 +43,7 @@ func NewManager(lister ListerInterface, logger logr.Logger) *Manager {
 // Run starts the Manager. It sets up the infrastructure and handles system signals, Kubelet socket
 // watch and monitoring of available resources as well as starting and stoping of plugins.
 func (dpm *Manager) Run() {
-	glog.V(3).Info("Starting device plugin manager")
+	//glog.V(3).Info("Starting device plugin manager")
 	dpm.log.V(0).Info("avihu avihu")
 
 	// First important signal channel is the os signal channel. We only care about (somewhat) small
