@@ -25,6 +25,7 @@ const (
 // unexpected kubelet events.
 type Manager struct {
 	lister ListerInterface
+	log    log.Logger
 }
 
 // NewManager is the canonical way of initializing Manager. User must provide ListerInterface
@@ -33,6 +34,7 @@ type Manager struct {
 func NewManager(lister ListerInterface, logger log.Logger) *Manager {
 	dpm := &Manager{
 		lister: lister,
+		log:    logger,
 	}
 	return dpm
 }
@@ -41,7 +43,7 @@ func NewManager(lister ListerInterface, logger log.Logger) *Manager {
 // watch and monitoring of available resources as well as starting and stoping of plugins.
 func (dpm *Manager) Run() {
 	glog.V(3).Info("Starting device plugin manager")
-	log.Logger.V(0).Info("avihu avihu")
+	dpm.log.Logger.V(0).Info("avihu avihu")
 
 	// First important signal channel is the os signal channel. We only care about (somewhat) small
 	// subset of available signals.
