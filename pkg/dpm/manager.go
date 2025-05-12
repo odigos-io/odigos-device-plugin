@@ -35,7 +35,7 @@ type Manager struct {
 func NewManager(lister ListerInterface, log logr.Logger) *Manager {
 	dpm := &Manager{
 		lister: lister,
-		log:    logger,
+		log:    log,
 	}
 	return dpm
 }
@@ -100,8 +100,8 @@ func (dpm *Manager) Run() {
 
 	// Finally start a loop that will handle messages from opened channels.
 	//glog.V(3).Info("Handling incoming signals")
-HandleSignals:
 	socketCheckFailures := 0
+HandleSignals:
 	for {
 		select {
 		case newPluginsList := <-pluginsCh:
@@ -137,15 +137,16 @@ HandleSignals:
 
 				switch {
 				case os.IsNotExist(err):
-					dpm.log.V(3).Infof("Kubelet socket does not exist yet: %v", err)
+					dpm.log.V(0).Info("avihu")
+					dpm.log.V(3).Info("Kubelet socket does not exist yet: %v", err)
 				case os.IsPermission(err):
-					dpm.log.Errorf("Permission denied accessing kubelet socket: %v", err)
+					dpm.log.Error(err, "Permission denied accessing kubelet socket: %v", pluginapi.KubeletSocket)
 				default:
-					dpm.log.Errorf("Error stating kubelet socket: %v", err)
+					dpm.log.Error(err, "Error stating kubelet socket: %v", pluginapi.KubeletSocket)
 				}
 
 				if socketCheckFailures >= 5 {
-					dpm.log.Errorf("Kubelet socket check failed %d times in a row, shutting down", socketCheckFailures)
+					dpm.log.Error(err, "Kubelet socket check failed %d times in a row, shutting down", socketCheckFailures)
 					dpm.stopPlugins(pluginMap)
 					os.Exit(1)
 				}
@@ -278,10 +279,10 @@ func startPluginServer(pluginLastName string, plugin devicePlugin) {
 			return
 		} else if i == startPluginServerRetries {
 			//glog.V(3).Infof("Failed to start plugin's \"%s\" server, within given %d tries: %s",
-				pluginLastName, startPluginServerRetries, err)
+			//pluginLastName, startPluginServerRetries, err)
 		} else {
 			//glog.Errorf("Failed to start plugin's \"%s\" server, attempt %d out of %d waiting %d before next try: %s",
-				pluginLastName, i, startPluginServerRetries, startPluginServerRetryWait, err)
+			//pluginLastName, i, startPluginServerRetries, startPluginServerRetryWait, err)
 			time.Sleep(startPluginServerRetryWait)
 		}
 	}
