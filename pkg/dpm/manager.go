@@ -43,7 +43,8 @@ func NewManager(lister ListerInterface, logger logr.Logger) *Manager {
 // watch and monitoring of available resources as well as starting and stoping of plugins.
 func (dpm *Manager) Run() {
 	glog.V(3).Info("Starting device plugin manager")
-	dpm.log.Logger.V(0).Info("avihu avihu")
+	dpm.log.V(0).Info("avihu avihu")
+
 
 	// First important signal channel is the os signal channel. We only care about (somewhat) small
 	// subset of available signals.
