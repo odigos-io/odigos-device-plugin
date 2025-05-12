@@ -66,11 +66,12 @@ func (dpm *Manager) Run() {
 	fsWatcher, err = func() (*fsnotify.Watcher, error) {
 		w, err := fsnotify.NewWatcher()
 		if err != nil {
-			dpm.log.V(0).Info("Failed to create fsnotify watcher, falling back to polling", "err: ", err)
+			dpm.log.V(0).Info("Failed to watch device plugin path, falling back to polling", "error", err)
 			return nil, err
 		}
 		if err := w.Add(pluginapi.DevicePluginPath); err != nil {
-			dpm.log.V(0).Info("Failed to watch device plugin path: , falling back to polling", "err: ", err)
+			dpm.log.V(0).Info("Failed to watch device plugin path, falling back to polling", "error", err)
+
 			return nil, err
 		}
 		return w, nil
@@ -136,7 +137,6 @@ HandleSignals:
 
 				switch {
 				case os.IsNotExist(err):
-					dpm.log.V(0).Info("avihu")
 					dpm.log.V(3).Info("Kubelet socket does not exist yet: %v", err)
 				case os.IsPermission(err):
 					dpm.log.Error(err, "Permission denied accessing kubelet socket: %v", pluginapi.KubeletSocket)
