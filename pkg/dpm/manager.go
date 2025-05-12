@@ -1,6 +1,8 @@
 package dpm
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"os/signal"
 	"sync"
@@ -138,9 +140,9 @@ HandleSignals:
 				socketCheckFailures++
 
 				switch {
-				case os.IsNotExist(err):
+				case errors.Is(err, fs.ErrNotExist):
 					dpm.log.V(3).Info("Kubelet socket does not exist yet: %v", err)
-				case os.IsPermission(err):
+				case errors.Is(err, fs.ErrPermission):
 					dpm.log.Error(err, "Permission denied accessing kubelet socket: %v", pluginapi.KubeletSocket)
 				default:
 					dpm.log.Error(err, "Error stating kubelet socket: %v", pluginapi.KubeletSocket)
