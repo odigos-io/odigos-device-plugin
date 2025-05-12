@@ -43,7 +43,7 @@ func (dpm *Manager) Run() {
 
 	// First important signal channel is the os signal channel. We only care about (somewhat) small
 	// subset of available signals.
-	glog.V(3).Info("Registering for system signal notifications")
+	glog.Info("Registering for system signal notifications")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 
