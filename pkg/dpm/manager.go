@@ -67,7 +67,6 @@ func (dpm *Manager) Run() {
 		}
 		if err := w.Add(pluginapi.DevicePluginPath); err != nil {
 			glog.Warningf("Failed to watch device plugin path: %v, falling back to polling", err)
-			w.Close()
 			return nil, err
 		}
 		return w, nil
