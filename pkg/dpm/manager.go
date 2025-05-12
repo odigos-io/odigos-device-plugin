@@ -44,7 +44,7 @@ func NewManager(lister ListerInterface, log logr.Logger) *Manager {
 // watch and monitoring of available resources as well as starting and stoping of plugins.
 func (dpm *Manager) Run() {
 	//glog.V(3).Info("Starting device plugin manager")
-	dpm.log.V(0).Info("avihu avihu")
+	dpm.log.V(0).Info("avihu")
 
 	// First important signal channel is the os signal channel. We only care about (somewhat) small
 	// subset of available signals.
@@ -101,6 +101,7 @@ func (dpm *Manager) Run() {
 	// Finally start a loop that will handle messages from opened channels.
 	//glog.V(3).Info("Handling incoming signals")
 HandleSignals:
+	socketCheckFailures := 0
 	for {
 		select {
 		case newPluginsList := <-pluginsCh:
@@ -132,7 +133,22 @@ HandleSignals:
 				}
 			} else {
 				socketExists = false
-				//glog.V(3).Infof("os.Stat(%s) error: %v", pluginapi.KubeletSocket, err)
+				socketCheckFailures++
+
+				switch {
+				case os.IsNotExist(err):
+					dpm.log.V(3).Infof("Kubelet socket does not exist yet: %v", err)
+				case os.IsPermission(err):
+					dpm.log.Errorf("Permission denied accessing kubelet socket: %v", err)
+				default:
+					dpm.log.Errorf("Error stating kubelet socket: %v", err)
+				}
+
+				if socketCheckFailures >= 5 {
+					dpm.log.Errorf("Kubelet socket check failed %d times in a row, shutting down", socketCheckFailures)
+					dpm.stopPlugins(pluginMap)
+					os.Exit(1)
+				}
 			}
 
 		case s := <-signalCh:
