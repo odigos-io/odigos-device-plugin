@@ -124,6 +124,7 @@ HandleSignals:
 		case <-ticker.C:
 			info, err := os.Stat(pluginapi.KubeletSocket)
 			if err == nil {
+				socketCheckFailures = 0
 				modTime := info.ModTime()
 				if !socketExists || modTime.After(lastModTime) {
 					lastModTime = modTime
