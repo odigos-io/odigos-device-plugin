@@ -11,6 +11,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/golang/glog"
 
+	//"github.com/golang/glog"
+
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
@@ -45,16 +47,15 @@ func (dpm *Manager) Run() {
 	glog.V(3).Info("Starting device plugin manager")
 	dpm.log.V(0).Info("avihu avihu")
 
-
 	// First important signal channel is the os signal channel. We only care about (somewhat) small
 	// subset of available signals.
-	glog.Info("Registering for system signal notifications")
+	//glog.Info("Registering for system signal notifications")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 
 	// The other important channel is filesystem notification channel, responsible for watching
 	// device plugin directory.
-	glog.V(3).Info("Registering for notifications of filesystem changes in device plugin directory")
+	//glog.V(3).Info("Registering for notifications of filesystem changes in device plugin directory")
 	var (
 		fsWatcher       *fsnotify.Watcher
 		err             error
@@ -67,11 +68,11 @@ func (dpm *Manager) Run() {
 	fsWatcher, err = func() (*fsnotify.Watcher, error) {
 		w, err := fsnotify.NewWatcher()
 		if err != nil {
-			glog.Warningf("Failed to create fsnotify watcher: %v, falling back to polling", err)
+			//glog.Warningf("Failed to create fsnotify watcher: %v, falling back to polling", err)
 			return nil, err
 		}
 		if err := w.Add(pluginapi.DevicePluginPath); err != nil {
-			glog.Warningf("Failed to watch device plugin path: %v, falling back to polling", err)
+			//glog.Warningf("Failed to watch device plugin path: %v, falling back to polling", err)
 			return nil, err
 		}
 		return w, nil
@@ -93,23 +94,23 @@ func (dpm *Manager) Run() {
 	// Create list of running plugins and start Discover method of given lister. This method is
 	// responsible of notifying manager about changes in available plugins.
 	var pluginMap = make(map[string]devicePlugin)
-	glog.V(3).Info("Starting Discovery on new plugins")
+	//glog.V(3).Info("Starting Discovery on new plugins")
 	pluginsCh := make(chan PluginNameList)
 	defer close(pluginsCh)
 	go dpm.lister.Discover(pluginsCh)
 
 	// Finally start a loop that will handle messages from opened channels.
-	glog.V(3).Info("Handling incoming signals")
+	//glog.V(3).Info("Handling incoming signals")
 HandleSignals:
 	for {
 		select {
 		case newPluginsList := <-pluginsCh:
-			glog.V(3).Infof("Received new list of plugins: %s", newPluginsList)
+			//glog.V(3).Infof("Received new list of plugins: %s", newPluginsList)
 			dpm.handleNewPlugins(pluginMap, newPluginsList)
 
 		case event := <-fsWatcherEvents:
 			if event.Name == pluginapi.KubeletSocket {
-				glog.V(3).Infof("Received kubelet socket event: %s", event)
+				//glog.V(3).Infof("Received kubelet socket event: %s", event)
 				if event.Op&fsnotify.Create == fsnotify.Create {
 					dpm.startPluginServers(pluginMap)
 				}
@@ -127,18 +128,18 @@ HandleSignals:
 				if !socketExists || modTime.After(lastModTime) {
 					lastModTime = modTime
 					socketExists = true
-					glog.V(3).Infof("Detected modification or creation of: %s", pluginapi.KubeletSocket)
+					//glog.V(3).Infof("Detected modification or creation of: %s", pluginapi.KubeletSocket)
 					dpm.startPluginServers(pluginMap)
 				}
 			} else {
 				socketExists = false
-				glog.V(3).Infof("os.Stat(%s) error: %v", pluginapi.KubeletSocket, err)
+				//glog.V(3).Infof("os.Stat(%s) error: %v", pluginapi.KubeletSocket, err)
 			}
 
 		case s := <-signalCh:
 			switch s {
 			case syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT:
-				glog.V(3).Infof("Received signal \"%v\", shutting down", s)
+				//glog.V(3).Infof("Received signal \"%v\", shutting down", s)
 				dpm.stopPlugins(pluginMap)
 				break HandleSignals
 			}
@@ -160,7 +161,7 @@ func (dpm *Manager) handleNewPlugins(currentPluginsMap map[string]devicePlugin, 
 		go func(name string) {
 			if _, ok := currentPluginsMap[name]; !ok {
 				// add new plugin only if it doesn't already exist
-				glog.V(3).Infof("Adding a new plugin \"%s\"", name)
+				//glog.V(3).Infof("Adding a new plugin \"%s\"", name)
 				plugin := newDevicePlugin(dpm.lister.GetResourceNamespace(), name, dpm.lister.NewPlugin(name))
 				startPlugin(name, plugin)
 				pluginMapMutex.Lock()
@@ -177,7 +178,7 @@ func (dpm *Manager) handleNewPlugins(currentPluginsMap map[string]devicePlugin, 
 		wg.Add(1)
 		go func(name string, plugin devicePlugin) {
 			if _, found := newPluginsSet[name]; !found {
-				glog.V(3).Infof("Remove unused plugin \"%s\"", name)
+				//glog.V(3).Infof("Remove unused plugin \"%s\"", name)
 				stopPlugin(name, plugin)
 				pluginMapMutex.Lock()
 				delete(currentPluginsMap, name)
@@ -237,7 +238,7 @@ func startPlugin(pluginLastName string, plugin devicePlugin) {
 	if devicePluginImpl, ok := plugin.DevicePluginImpl.(PluginInterfaceStart); ok {
 		err = devicePluginImpl.Start()
 		if err != nil {
-			glog.Errorf("Failed to start plugin \"%s\": %s", pluginLastName, err)
+			//glog.Errorf("Failed to start plugin \"%s\": %s", pluginLastName, err)
 		}
 	}
 	if err == nil {
@@ -250,7 +251,7 @@ func stopPlugin(pluginLastName string, plugin devicePlugin) {
 	if devicePluginImpl, ok := plugin.DevicePluginImpl.(PluginInterfaceStop); ok {
 		err := devicePluginImpl.Stop()
 		if err != nil {
-			glog.Errorf("Failed to stop plugin \"%s\": %s", pluginLastName, err)
+			//glog.Errorf("Failed to stop plugin \"%s\": %s", pluginLastName, err)
 		}
 	}
 }
@@ -261,10 +262,10 @@ func startPluginServer(pluginLastName string, plugin devicePlugin) {
 		if err == nil {
 			return
 		} else if i == startPluginServerRetries {
-			glog.V(3).Infof("Failed to start plugin's \"%s\" server, within given %d tries: %s",
+			//glog.V(3).Infof("Failed to start plugin's \"%s\" server, within given %d tries: %s",
 				pluginLastName, startPluginServerRetries, err)
 		} else {
-			glog.Errorf("Failed to start plugin's \"%s\" server, attempt %d out of %d waiting %d before next try: %s",
+			//glog.Errorf("Failed to start plugin's \"%s\" server, attempt %d out of %d waiting %d before next try: %s",
 				pluginLastName, i, startPluginServerRetries, startPluginServerRetryWait, err)
 			time.Sleep(startPluginServerRetryWait)
 		}
@@ -274,6 +275,6 @@ func startPluginServer(pluginLastName string, plugin devicePlugin) {
 func stopPluginServer(pluginLastName string, plugin devicePlugin) {
 	err := plugin.StopServer()
 	if err != nil {
-		glog.Errorf("Failed to stop plugin's \"%s\" server: %s", pluginLastName, err)
+		//glog.Errorf("Failed to stop plugin's \"%s\" server: %s", pluginLastName, err)
 	}
 }
