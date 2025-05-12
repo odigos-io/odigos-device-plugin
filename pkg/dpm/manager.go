@@ -58,7 +58,7 @@ func (dpm *Manager) Run() {
 		fsWatcher       *fsnotify.Watcher
 		err             error
 		fsWatcherEvents <-chan fsnotify.Event
-		ticker          *time.Ticker
+		tickerChan      <-chan time.Time
 		lastModTime     time.Time
 		socketExists    bool
 	)
@@ -84,7 +84,8 @@ func (dpm *Manager) Run() {
 	}()
 
 	if err != nil {
-		ticker = time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
+		tickerChan = ticker.C
 		defer ticker.Stop()
 	} else {
 		fsWatcherEvents = fsWatcher.Events
@@ -121,7 +122,7 @@ HandleSignals:
 				}
 			}
 
-		case <-ticker.C:
+		case <-tickerChan:
 			info, err := os.Stat(pluginapi.KubeletSocket)
 			if err == nil {
 				socketCheckFailures = 0
