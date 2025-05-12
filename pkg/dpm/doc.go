@@ -4,14 +4,14 @@
 // actual gRPC server. It also handles dynamic management of available resources and their
 // respective plugins.
 //
-// Usage
+// # Usage
 //
 // The framework contains two main interfaces which must be implemented by user. ListerInterface
 // handles resource management, it notifies DPM about available resources. Plugin interface then
 // represents a plugin that handles available devices of one resource.
 //
-// See Also
+// # See Also
 //
 // Repository of this package and some plugins using it can be found on
-// https://github.com/kubevirt/device-plugin-manager/.
+// https://github.com/odigos-io/odigos-device-plugin/.
 package dpm
