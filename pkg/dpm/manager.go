@@ -66,11 +66,11 @@ func (dpm *Manager) Run() {
 	fsWatcher, err = func() (*fsnotify.Watcher, error) {
 		w, err := fsnotify.NewWatcher()
 		if err != nil {
-			dpm.log.V(0).Info("Failed to create fsnotify watcher, falling back to polling", err)
+			dpm.log.V(0).Info("Failed to create fsnotify watcher, falling back to polling", "err: ", err)
 			return nil, err
 		}
 		if err := w.Add(pluginapi.DevicePluginPath); err != nil {
-			dpm.log.V(0).Info("Failed to watch device plugin path: , falling back to polling", err)
+			dpm.log.V(0).Info("Failed to watch device plugin path: , falling back to polling", "err: ", err)
 			return nil, err
 		}
 		return w, nil
