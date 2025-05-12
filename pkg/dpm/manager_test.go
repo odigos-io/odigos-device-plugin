@@ -1,7 +1,7 @@
 package dpm_test
 
 import (
-	"github.com/kubevirt/device-plugin-manager/pkg/dpm"
+	"github.com/odigos-io/odigos-device-plugin/pkg/dpm"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"golang.org/x/net/context"
