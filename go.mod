@@ -1,4 +1,4 @@
-module github.com/kubevirt/device-plugin-manager
+module github.com/odigos-io/odigos-device-plugin
 
 go 1.14
 
