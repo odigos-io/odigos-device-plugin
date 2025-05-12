@@ -9,6 +9,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/golang/glog"
+	"github.com/odigos-io/odigos/odiglet/pkg/log"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
@@ -29,7 +30,7 @@ type Manager struct {
 // NewManager is the canonical way of initializing Manager. User must provide ListerInterface
 // implementation. Lister will provide information about handled resources, monitor their
 // availability and provide method to spawn plugins that will handle found resources.
-func NewManager(lister ListerInterface) *Manager {
+func NewManager(lister ListerInterface, logger log.Logger) *Manager {
 	dpm := &Manager{
 		lister: lister,
 	}
@@ -40,6 +41,7 @@ func NewManager(lister ListerInterface) *Manager {
 // watch and monitoring of available resources as well as starting and stoping of plugins.
 func (dpm *Manager) Run() {
 	glog.V(3).Info("Starting device plugin manager")
+	log.Logger.V(0).Info("avihu avihu")
 
 	// First important signal channel is the os signal channel. We only care about (somewhat) small
 	// subset of available signals.
