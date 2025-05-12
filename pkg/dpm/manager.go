@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/go-logr/logr"
 	"github.com/golang/glog"
-	"github.com/odigos-io/odigos/odiglet/pkg/log"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
@@ -25,13 +25,13 @@ const (
 // unexpected kubelet events.
 type Manager struct {
 	lister ListerInterface
-	log    log.Logger
+	log    logr.Logger
 }
 
 // NewManager is the canonical way of initializing Manager. User must provide ListerInterface
 // implementation. Lister will provide information about handled resources, monitor their
 // availability and provide method to spawn plugins that will handle found resources.
-func NewManager(lister ListerInterface, logger log.Logger) *Manager {
+func NewManager(lister ListerInterface, logger logr.Logger) *Manager {
 	dpm := &Manager{
 		lister: lister,
 		log:    logger,
