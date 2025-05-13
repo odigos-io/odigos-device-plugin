@@ -5,9 +5,9 @@ package dpm
 // "color.example.com/red" is "red".
 type PluginNameList []string
 
-// ListerInterface serves as an interface between imlementation and Manager machinery. User passes
+// ListerInterface serves as an interface between implementation and Manager machinery. User passes
 // implementation of this interface to NewManager function. Manager will use it to obtain resource
-// namespace, monitor available resources and instantate a new plugin for them.
+// namespace, monitor available resources and instantiate a new plugin for them.
 type ListerInterface interface {
 	// GetResourceNamespace must return namespace (vendor ID) of implemented Lister. e.g. for
 	// resources in format "color.example.com/<color>" that would be "color.example.com".

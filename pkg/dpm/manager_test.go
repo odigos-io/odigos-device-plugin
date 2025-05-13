@@ -1,10 +1,11 @@
 package dpm_test
 
 import (
+	"context"
+	"github.com/go-logr/logr"
 	"github.com/odigos-io/odigos-device-plugin/pkg/dpm"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"golang.org/x/net/context"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
@@ -76,12 +77,12 @@ var _ = Describe("DPM", func() {
 		plugins = append(plugins, "hello")
 		plugins = append(plugins, "world")
 		lister := FakeLister{Plugins: plugins}
-		manager = dpm.NewManager(lister)
+		manager = dpm.NewManager(lister, logr.Logger{})
 	})
 	Describe("When DPM start", func() {
 		Context("With lister containing multiple plugins", func() {
 			It("Start API should be called on each plugin", func() {
-				go manager.Run()
+				go manager.Run(context.Background())
 				Eventually(func() int { return callsToStart }).Should(Equal(len(plugins)))
 			})
 		})
