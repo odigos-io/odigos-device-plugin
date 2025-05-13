@@ -1,6 +1,7 @@
 package dpm
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"context"
+
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -132,7 +134,7 @@ func (dpi *devicePlugin) serve() error {
 func (dpi *devicePlugin) register(ctx context.Context) error {
 	glog.V(3).Infof("%s: Registering the DPI with Kubelet", dpi.Name)
 
-	conn, err := grpc.NewClient(pluginapi.KubeletSocket,
+	conn, err := grpc.NewClient(fmt.Sprintf("unix://%s", pluginapi.KubeletSocket),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			return net.DialTimeout("unix", addr, grpcDialTimeout)
