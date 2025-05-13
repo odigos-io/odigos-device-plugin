@@ -136,9 +136,6 @@ func (dpi *devicePlugin) register(ctx context.Context) error {
 
 	conn, err := grpc.NewClient(fmt.Sprintf("unix://%s", pluginapi.KubeletSocket),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			return net.DialTimeout("unix", addr, grpcDialTimeout)
-		}),
 	)
 	if err != nil {
 		glog.Errorf("%s: Could not dial gRPC: %s", dpi.Name, err)
