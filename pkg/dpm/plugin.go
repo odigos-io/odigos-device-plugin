@@ -1,17 +1,24 @@
 package dpm
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path"
 	"sync"
 	"time"
 
+	"context"
+
 	"github.com/golang/glog"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+)
+
+const (
+	defaultRegisterTimeout = 5 * time.Second
 )
 
 // PluginInterface is a mandatory interface that must be implemented by all plugins. It is
@@ -60,7 +67,7 @@ func newDevicePlugin(resourceNamespace string, pluginName string, devicePluginIm
 
 // StartServer starts the gRPC server and registers the device plugin to Kubelet. Calling
 // StartServer on started object is NOOP.
-func (dpi *devicePlugin) StartServer() error {
+func (dpi *devicePlugin) StartServer(ctx context.Context) error {
 	glog.V(3).Infof("%s: Starting plugin server", dpi.Name)
 
 	// If Kubelet socket is created, we may try to start the same plugin concurrently. To avoid
@@ -79,7 +86,7 @@ func (dpi *devicePlugin) StartServer() error {
 		return err
 	}
 
-	err = dpi.register()
+	err = dpi.register(ctx)
 	if err != nil {
 		dpi.StopServer()
 		return err
@@ -124,22 +131,22 @@ func (dpi *devicePlugin) serve() error {
 
 // register registers the device plugin (as gRPC client call) for the given ResourceName with
 // Kubelet DPI infrastructure.
-func (dpi *devicePlugin) register() error {
+func (dpi *devicePlugin) register(ctx context.Context) error {
 	glog.V(3).Infof("%s: Registering the DPI with Kubelet", dpi.Name)
 
-	conn, err := grpc.Dial(pluginapi.KubeletSocket, grpc.WithInsecure(),
-		grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
-			return net.DialTimeout("unix", addr, timeout)
-		}))
-	defer conn.Close()
+	conn, err := grpc.NewClient(fmt.Sprintf("unix://%s", pluginapi.KubeletSocket),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		glog.Errorf("%s: Could not dial gRPC: %s", dpi.Name, err)
 		return err
 	}
+	defer conn.Close()
+
 	client := pluginapi.NewRegistrationClient(conn)
 	glog.Infof("%s: Registration for endpoint %s", dpi.Name, path.Base(dpi.Socket))
 
-	options, err := dpi.DevicePluginImpl.GetDevicePluginOptions(context.Background(), &pluginapi.Empty{})
+	options, err := dpi.DevicePluginImpl.GetDevicePluginOptions(ctx, &pluginapi.Empty{})
 	if err != nil {
 		glog.Errorf("%s: Failed to get device plugin options %s", dpi.Name, err)
 		return err
@@ -152,7 +159,10 @@ func (dpi *devicePlugin) register() error {
 		Options:      options,
 	}
 
-	_, err = client.Register(context.Background(), reqt)
+	ctx, cancel := context.WithTimeout(ctx, defaultRegisterTimeout)
+	defer cancel()
+
+	_, err = client.Register(ctx, reqt)
 	if err != nil {
 		glog.Errorf("%s: Registration failed: %s", dpi.Name, err)
 		glog.Errorf("%s: Make sure that the DevicePlugins feature gate is enabled and kubelet running", dpi.Name)
