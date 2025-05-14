@@ -13,8 +13,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-logr/logr"
 
-	//"github.com/golang/glog"
-
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 

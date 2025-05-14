@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	grpcDialTimeout = 5 * time.Second
+	defaultRegisterTimeout = 5 * time.Second
 )
 
 // PluginInterface is a mandatory interface that must be implemented by all plugins. It is
@@ -158,6 +158,9 @@ func (dpi *devicePlugin) register(ctx context.Context) error {
 		ResourceName: dpi.ResourceName,
 		Options:      options,
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, defaultRegisterTimeout)
+	defer cancel()
 
 	_, err = client.Register(ctx, reqt)
 	if err != nil {
