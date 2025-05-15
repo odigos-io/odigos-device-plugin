@@ -29,6 +29,7 @@ type Manager struct {
 	ctx           context.Context
 	lister        ListerInterface
 	readyNotifier chan<- struct{}
+	onceReady     sync.Once
 	log           logr.Logger
 }
 
@@ -48,7 +49,7 @@ func NewManager(ctx context.Context, lister ListerInterface, readyNotifier chan<
 // Run starts the Manager. It sets up the infrastructure and handles system signals, Kubelet socket
 // watch and monitoring of available resources as well as starting and stoping of plugins.
 func (dpm *Manager) Run() error {
-	dpm.log.V(3).Info("Starting device plugin manager")
+	dpm.log.V(0).Info("Starting device plugin manager")
 
 	// First important signal channel is the os signal channel. We only care about (somewhat) small
 	// subset of available signals.
@@ -115,7 +116,7 @@ HandleSignals:
 	for {
 		select {
 		case newPluginsList := <-pluginsCh:
-			dpm.log.V(3).Info("Received new list of plugins: %s", newPluginsList)
+			dpm.log.V(0).Info("Received new list of plugins: %s", newPluginsList)
 			dpm.handleNewPlugins(pluginMap, newPluginsList)
 
 		case event := <-fsWatcherEvents:
@@ -220,6 +221,14 @@ func (dpm *Manager) handleNewPlugins(currentPluginsMap map[string]devicePlugin, 
 		}(pluginLastName, currentPlugin)
 	}
 	wg.Wait()
+
+	dpm.onceReady.Do(func() {
+		select {
+		case dpm.readyNotifier <- struct{}{}:
+			dpm.log.V(0).Info("Device plugins registered, readiness signal sent")
+		default:
+		}
+	})
 }
 
 func (dpm *Manager) startPluginServers(pluginMap map[string]devicePlugin) {
@@ -233,11 +242,7 @@ func (dpm *Manager) startPluginServers(pluginMap map[string]devicePlugin) {
 		}(pluginLastName, currentPlugin)
 	}
 
-	go func() {
-		wg.Wait()
-		// All plugins are registered
-		dpm.readyNotifier <- struct{}{}
-	}()
+	wg.Wait()
 }
 
 func (dpm *Manager) stopPluginServers(pluginMap map[string]devicePlugin) {
