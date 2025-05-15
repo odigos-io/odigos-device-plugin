@@ -53,7 +53,6 @@ func (dpm *Manager) Run() error {
 
 	// First important signal channel is the os signal channel. We only care about (somewhat) small
 	// subset of available signals.
-	dpm.log.Info("Registering for system signal notifications")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 
@@ -116,7 +115,6 @@ HandleSignals:
 	for {
 		select {
 		case newPluginsList := <-pluginsCh:
-			dpm.log.V(0).Info("Received new list of plugins: %s", newPluginsList)
 			dpm.handleNewPlugins(pluginMap, newPluginsList)
 
 		case event := <-fsWatcherEvents:
@@ -226,7 +224,7 @@ func (dpm *Manager) handleNewPlugins(currentPluginsMap map[string]devicePlugin, 
 		select {
 		case dpm.readyNotifier <- struct{}{}:
 			dpm.log.V(0).Info("Device plugins registered, readiness signal sent")
-		default:
+		default: 
 		}
 	})
 }
