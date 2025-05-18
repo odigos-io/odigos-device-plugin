@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -26,11 +27,12 @@ const (
 // available resources and start/stop plugins accordingly. It also handles system signals and
 // unexpected kubelet events.
 type Manager struct {
-	ctx           context.Context
-	lister        ListerInterface
-	readyNotifier chan<- struct{}
-	onceReady     sync.Once
-	log           logr.Logger
+	ctx              context.Context
+	lister           ListerInterface
+	readyNotifier    chan<- struct{}
+	onceReady        sync.Once
+	pluginRegistered atomic.Bool
+	log              logr.Logger
 }
 
 // NewManager is the canonical way of initializing Manager. User must provide ListerInterface
@@ -38,10 +40,11 @@ type Manager struct {
 // availability and provide method to spawn plugins that will handle found resources.
 func NewManager(ctx context.Context, lister ListerInterface, readyNotifier chan<- struct{}, log logr.Logger) *Manager {
 	dpm := &Manager{
-		ctx:           ctx,
-		lister:        lister,
-		readyNotifier: readyNotifier,
-		log:           log,
+		ctx:              ctx,
+		lister:           lister,
+		pluginRegistered: atomic.Bool{},
+		readyNotifier:    readyNotifier,
+		log:              log,
 	}
 	return dpm
 }
@@ -220,6 +223,7 @@ func (dpm *Manager) handleNewPlugins(currentPluginsMap map[string]devicePlugin, 
 	}
 	wg.Wait()
 	dpm.onceReady.Do(func() {
+		dpm.pluginRegistered.Store(true)
 		close(dpm.readyNotifier)
 		dpm.log.V(0).Info("Device plugins registered, readiness signal sent")
 	})
