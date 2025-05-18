@@ -219,13 +219,9 @@ func (dpm *Manager) handleNewPlugins(currentPluginsMap map[string]devicePlugin, 
 		}(pluginLastName, currentPlugin)
 	}
 	wg.Wait()
-
 	dpm.onceReady.Do(func() {
-		select {
-		case dpm.readyNotifier <- struct{}{}:
-			dpm.log.V(0).Info("Device plugins registered, readiness signal sent")
-		default: 
-		}
+		close(dpm.readyNotifier)
+		dpm.log.V(0).Info("Device plugins registered, readiness signal sent")
 	})
 }
 
