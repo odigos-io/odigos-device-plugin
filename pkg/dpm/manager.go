@@ -31,18 +31,18 @@ type Manager struct {
 	lister           ListerInterface
 	readyNotifier    chan<- struct{}
 	onceReady        sync.Once
-	pluginRegistered atomic.Bool
+	pluginRegistered *atomic.Bool
 	log              logr.Logger
 }
 
 // NewManager is the canonical way of initializing Manager. User must provide ListerInterface
 // implementation. Lister will provide information about handled resources, monitor their
 // availability and provide method to spawn plugins that will handle found resources.
-func NewManager(ctx context.Context, lister ListerInterface, readyNotifier chan<- struct{}, log logr.Logger) *Manager {
+func NewManager(ctx context.Context, lister ListerInterface, readyNotifier chan<- struct{}, pluginRegistered *atomic.Bool, log logr.Logger) *Manager {
 	dpm := &Manager{
 		ctx:              ctx,
 		lister:           lister,
-		pluginRegistered: atomic.Bool{},
+		pluginRegistered: pluginRegistered,
 		readyNotifier:    readyNotifier,
 		log:              log,
 	}
