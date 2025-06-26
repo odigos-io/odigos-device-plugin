@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -26,29 +27,35 @@ const (
 // available resources and start/stop plugins accordingly. It also handles system signals and
 // unexpected kubelet events.
 type Manager struct {
-	lister ListerInterface
-	log    logr.Logger
+	ctx              context.Context
+	lister           ListerInterface
+	readyNotifier    chan<- struct{}
+	onceReady        sync.Once
+	pluginRegistered *atomic.Bool
+	log              logr.Logger
 }
 
 // NewManager is the canonical way of initializing Manager. User must provide ListerInterface
 // implementation. Lister will provide information about handled resources, monitor their
 // availability and provide method to spawn plugins that will handle found resources.
-func NewManager(lister ListerInterface, log logr.Logger) *Manager {
+func NewManager(ctx context.Context, lister ListerInterface, readyNotifier chan<- struct{}, pluginRegistered *atomic.Bool, log logr.Logger) *Manager {
 	dpm := &Manager{
-		lister: lister,
-		log:    log,
+		ctx:              ctx,
+		lister:           lister,
+		pluginRegistered: pluginRegistered,
+		readyNotifier:    readyNotifier,
+		log:              log,
 	}
 	return dpm
 }
 
 // Run starts the Manager. It sets up the infrastructure and handles system signals, Kubelet socket
 // watch and monitoring of available resources as well as starting and stoping of plugins.
-func (dpm *Manager) Run(ctx context.Context) {
-	dpm.log.V(3).Info("Starting device plugin manager")
+func (dpm *Manager) Run() error {
+	dpm.log.V(0).Info("Starting device plugin manager")
 
 	// First important signal channel is the os signal channel. We only care about (somewhat) small
 	// subset of available signals.
-	dpm.log.Info("Registering for system signal notifications")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 
@@ -63,6 +70,9 @@ func (dpm *Manager) Run(ctx context.Context) {
 		lastModTime     time.Time
 		socketExists    bool
 	)
+
+	// one is to understand how to cacth the point where the device plugin is set good and to ping the odiglet about that
+	// and the other is to understand how to return error currectly from the device plugin Run method
 
 	fsWatcher, err = func() (*fsnotify.Watcher, error) {
 		w, err := fsnotify.NewWatcher()
@@ -108,14 +118,13 @@ HandleSignals:
 	for {
 		select {
 		case newPluginsList := <-pluginsCh:
-			dpm.log.V(3).Info("Received new list of plugins: %s", newPluginsList)
-			dpm.handleNewPlugins(ctx, pluginMap, newPluginsList)
+			dpm.handleNewPlugins(pluginMap, newPluginsList)
 
 		case event := <-fsWatcherEvents:
 			if event.Name == pluginapi.KubeletSocket {
 				dpm.log.V(3).Info("Received kubelet socket event: %s", event)
 				if event.Op&fsnotify.Create == fsnotify.Create {
-					dpm.startPluginServers(ctx, pluginMap)
+					dpm.startPluginServers(pluginMap)
 				}
 				// TODO: Kubelet doesn't really clean-up it's socket, so this is currently
 				// manual-testing thing. Could we solve Kubelet deaths better?
@@ -133,7 +142,7 @@ HandleSignals:
 					lastModTime = modTime
 					socketExists = true
 					dpm.log.V(3).Info("Detected modification or creation of: %s", pluginapi.KubeletSocket)
-					dpm.startPluginServers(ctx, pluginMap)
+					dpm.startPluginServers(pluginMap)
 				}
 			} else {
 				socketExists = false
@@ -151,7 +160,7 @@ HandleSignals:
 				if socketCheckFailures >= 5 {
 					dpm.log.Error(err, "Kubelet socket check failed %d times in a row, shutting down", socketCheckFailures)
 					dpm.stopPlugins(pluginMap)
-					os.Exit(1)
+					return errors.New("Failed to access kubelet socket, shutting down")
 				}
 			}
 
@@ -163,15 +172,16 @@ HandleSignals:
 				break HandleSignals
 			}
 
-		case <-ctx.Done():
+		case <-dpm.ctx.Done():
 			dpm.log.V(3).Info("Received context done signal, shutting down")
 			dpm.stopPlugins(pluginMap)
 			break HandleSignals
 		}
 	}
+	return nil
 }
 
-func (dpm *Manager) handleNewPlugins(ctx context.Context, currentPluginsMap map[string]devicePlugin, newPluginsList PluginNameList) {
+func (dpm *Manager) handleNewPlugins(currentPluginsMap map[string]devicePlugin, newPluginsList PluginNameList) {
 	var wg sync.WaitGroup
 	var pluginMapMutex = &sync.Mutex{}
 
@@ -187,7 +197,7 @@ func (dpm *Manager) handleNewPlugins(ctx context.Context, currentPluginsMap map[
 				// add new plugin only if it doesn't already exist
 				dpm.log.V(3).Info("Adding a new plugin \"%s\"", name)
 				plugin := newDevicePlugin(dpm.lister.GetResourceNamespace(), name, dpm.lister.NewPlugin(name))
-				dpm.startPlugin(ctx, name, plugin)
+				dpm.startPlugin(name, plugin)
 				pluginMapMutex.Lock()
 				currentPluginsMap[name] = plugin
 				pluginMapMutex.Unlock()
@@ -212,18 +222,24 @@ func (dpm *Manager) handleNewPlugins(ctx context.Context, currentPluginsMap map[
 		}(pluginLastName, currentPlugin)
 	}
 	wg.Wait()
+	dpm.onceReady.Do(func() {
+		dpm.pluginRegistered.Store(true)
+		close(dpm.readyNotifier)
+		dpm.log.V(0).Info("Device plugins registered, readiness signal sent")
+	})
 }
 
-func (dpm *Manager) startPluginServers(ctx context.Context, pluginMap map[string]devicePlugin) {
+func (dpm *Manager) startPluginServers(pluginMap map[string]devicePlugin) {
 	var wg sync.WaitGroup
 
 	for pluginLastName, currentPlugin := range pluginMap {
 		wg.Add(1)
 		go func(name string, plugin devicePlugin) {
-			dpm.startPluginServer(ctx, name, plugin)
-			wg.Done()
+			defer wg.Done()
+			dpm.startPluginServer(name, plugin)
 		}(pluginLastName, currentPlugin)
 	}
+
 	wg.Wait()
 }
 
@@ -257,7 +273,7 @@ func (dpm *Manager) stopPlugins(pluginMap map[string]devicePlugin) {
 	wg.Wait()
 }
 
-func (dpm *Manager) startPlugin(ctx context.Context, pluginLastName string, plugin devicePlugin) {
+func (dpm *Manager) startPlugin(pluginLastName string, plugin devicePlugin) {
 	var err error
 	if devicePluginImpl, ok := plugin.DevicePluginImpl.(PluginInterfaceStart); ok {
 		err = devicePluginImpl.Start()
@@ -266,7 +282,7 @@ func (dpm *Manager) startPlugin(ctx context.Context, pluginLastName string, plug
 		}
 	}
 	if err == nil {
-		dpm.startPluginServer(ctx, pluginLastName, plugin)
+		dpm.startPluginServer(pluginLastName, plugin)
 	}
 }
 
@@ -280,9 +296,9 @@ func (dpm *Manager) stopPlugin(pluginLastName string, plugin devicePlugin) {
 	}
 }
 
-func (dpm *Manager) startPluginServer(ctx context.Context, pluginLastName string, plugin devicePlugin) {
+func (dpm *Manager) startPluginServer(pluginLastName string, plugin devicePlugin) {
 	for i := 1; i <= startPluginServerRetries; i++ {
-		err := plugin.StartServer(ctx)
+		err := plugin.StartServer(dpm.ctx)
 		if err == nil {
 			return
 		} else if i == startPluginServerRetries {
