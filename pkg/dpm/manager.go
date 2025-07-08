@@ -108,12 +108,12 @@ HandleSignals:
 	for {
 		select {
 		case newPluginsList := <-pluginsCh:
-			dpm.log.V(3).Info("Received new list of plugins: %s", newPluginsList)
+			dpm.log.V(3).Info("Received new list of plugins", "plugins", newPluginsList)
 			dpm.handleNewPlugins(ctx, pluginMap, newPluginsList)
 
 		case event := <-fsWatcherEvents:
 			if event.Name == pluginapi.KubeletSocket {
-				dpm.log.V(3).Info("Received kubelet socket event: %s", event)
+				dpm.log.V(3).Info("Received kubelet socket event", "event", event)
 				if event.Op&fsnotify.Create == fsnotify.Create {
 					dpm.startPluginServers(ctx, pluginMap)
 				}
@@ -132,7 +132,7 @@ HandleSignals:
 				if !socketExists || modTime.After(lastModTime) {
 					lastModTime = modTime
 					socketExists = true
-					dpm.log.V(3).Info("Detected modification or creation of: %s", pluginapi.KubeletSocket)
+					dpm.log.V(3).Info("Detected modification or creation of", "socket", pluginapi.KubeletSocket)
 					dpm.startPluginServers(ctx, pluginMap)
 				}
 			} else {
@@ -141,7 +141,7 @@ HandleSignals:
 
 				switch {
 				case errors.Is(err, fs.ErrNotExist):
-					dpm.log.V(3).Info("Kubelet socket does not exist yet: %v", err)
+					dpm.log.V(3).Info("Kubelet socket does not exist yet", "error", err)
 				case errors.Is(err, fs.ErrPermission):
 					dpm.log.Error(err, "Permission denied accessing kubelet socket: %v", pluginapi.KubeletSocket)
 				default:
@@ -158,7 +158,7 @@ HandleSignals:
 		case s := <-signalCh:
 			switch s {
 			case syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT:
-				dpm.log.V(3).Info("Received signal \"%v\", shutting down", s)
+				dpm.log.V(3).Info("Received signal, shutting down", "signal", s)
 				dpm.stopPlugins(pluginMap)
 				break HandleSignals
 			}
@@ -185,7 +185,7 @@ func (dpm *Manager) handleNewPlugins(ctx context.Context, currentPluginsMap map[
 		go func(name string) {
 			if _, ok := currentPluginsMap[name]; !ok {
 				// add new plugin only if it doesn't already exist
-				dpm.log.V(3).Info("Adding a new plugin \"%s\"", name)
+				dpm.log.V(3).Info("Adding a new plugin", "plugin", name)
 				plugin := newDevicePlugin(dpm.lister.GetResourceNamespace(), name, dpm.lister.NewPlugin(name))
 				dpm.startPlugin(ctx, name, plugin)
 				pluginMapMutex.Lock()
@@ -202,7 +202,7 @@ func (dpm *Manager) handleNewPlugins(ctx context.Context, currentPluginsMap map[
 		wg.Add(1)
 		go func(name string, plugin devicePlugin) {
 			if _, found := newPluginsSet[name]; !found {
-				dpm.log.V(3).Info("Remove unused plugin \"%s\"", name)
+				dpm.log.V(3).Info("Remove unused plugin", "plugin", name)
 				dpm.stopPlugin(name, plugin)
 				pluginMapMutex.Lock()
 				delete(currentPluginsMap, name)
@@ -286,8 +286,7 @@ func (dpm *Manager) startPluginServer(ctx context.Context, pluginLastName string
 		if err == nil {
 			return
 		} else if i == startPluginServerRetries {
-			dpm.log.V(3).Info("Failed to start plugin's \"%s\" server, within given %d tries: %s",
-				pluginLastName, startPluginServerRetries, err)
+			dpm.log.V(3).Info("Failed to start plugin's server, within given tries", "plugin", pluginLastName, "tries", startPluginServerRetries, "error", err)
 		} else {
 			dpm.log.Error(err, "Failed to start plugin's \"%s\" server, attempt %d out of %d waiting %d before next try: %s",
 				pluginLastName, i, startPluginServerRetries, startPluginServerRetryWait, err)
