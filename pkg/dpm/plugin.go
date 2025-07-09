@@ -13,6 +13,8 @@ import (
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
@@ -113,7 +115,12 @@ func (dpi *devicePlugin) serve() error {
 	}
 
 	dpi.Server = grpc.NewServer([]grpc.ServerOption{}...)
+	// 🟩 Register the main DevicePlugin API
 	pluginapi.RegisterDevicePluginServer(dpi.Server, dpi.DevicePluginImpl)
+	// 🟩 Register the gRPC health service for probes
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	healthpb.RegisterHealthServer(dpi.Server, healthServer)
 
 	go dpi.Server.Serve(sock)
 	glog.V(3).Infof("%s: Serving requests...", dpi.Name)
